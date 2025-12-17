@@ -26,19 +26,19 @@ apt upgrade -y
 sleep 1
 
 echo "Installing Python3..."
-apt install python3
+apt install -y python3
 
 sleep 1
 
 echo "Installing pip..."
-apt install python3-pip
+apt install -y python3-pip
 python -m pip install --upgrade pip
 
 sleep 1
 
 echo " "
 echo "Installing required packages..."
-apt install python3-bleak python3-tk jq curl wget mc
+apt install -y python3-bleak python3-tk jq curl wget mc
 
 sleep 1
 
