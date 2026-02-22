@@ -1,5 +1,4 @@
-MeshCore Drone Updater is an automated firmware flashing service designed for nRF52-based MeshCore nodes in hard-to-reach locations (such as roofs) using a Raspberry Pi mounted on a drone.
-
+MeshCore Drone Updater is an automated firmware flashing service designed for nRF52-based MeshCore nodes in hard-to-reach locations (such as roofs) using a Raspberry Pi mounted on a drone. Incudes support for a WaveShare 2.13" E-Ink display to view status of flash progress and piSugar UPS.
 
 🚀 Features
 
@@ -13,6 +12,14 @@ Firmware Overrides: Support for temporary overrides of the mapped firmwares.
 🛠 Installation
 
 The installation is designed to be straightforward for Raspberry Pi OS (and other Linux distributions):
+
+First, enable SPI and I2C:
+sudo raspi-config
+    -> Interface Options
+
+install piSugar Power Manager as per https://github.com/PiSugar/PiSugar/wiki/PiSugar-Power-Manager-(Software)
+wget https://cdn.pisugar.com/release/pisugar-power-manager.sh
+bash pisugar-power-manager.sh -c release
 
 
 git clone https://github.com/lucidnx/meshcore-drone-updater.git

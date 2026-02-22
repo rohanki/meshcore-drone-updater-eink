@@ -38,7 +38,7 @@ sleep 1
 
 echo " "
 echo "Installing required packages..."
-apt install -y python3-bleak python3-tk jq curl wget mc
+apt install -y python3-bleak python3-tk jq curl wget mc python3-pil python3-numpy python3-gpiozero fonts-symbola
 
 sleep 1
 
