@@ -59,46 +59,59 @@ log3 = ""
 
 
 def get_battery_percentage():
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.connect(("127.0.0.1", 8423))
-        s.sendall(b"get battery\n")
-        response = s.recv(1024).decode().strip()
-
-    # Expected format: "battery: 79.56304"
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.settimeout(2)
+            s.connect(("127.0.0.1", 8423))
+            s.sendall(b"get battery\n")
+            response = s.recv(1024).decode().strip()
+    except (socket.error, ConnectionRefusedError, TimeoutError):
+        return "-"  # Port closed. Service likely not running
     try:
         value = response.split(":")[1].strip()
         return int(float(value))  # Convert to float first, then int
     except (IndexError, ValueError):
-        raise ValueError(f"Unexpected response format: {response}")
+        return "-"  # Problem decoding response
 
 def get_temperature():
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.connect(("127.0.0.1", 8423))
-        s.sendall(b"get temperature\n")
-        response = s.recv(1024).decode().strip()
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.settimeout(2)
+            s.connect(("127.0.0.1", 8423))
+            s.sendall(b"get temperature\n")
+            response = s.recv(1024).decode().strip()
+    except (socket.error, ConnectionRefusedError, TimeoutError):
+        return "-"  # Port closed. Service likely not running
 
-    # Expected format: "battery: 00.000"
     try:
         value = response.split(":")[1].strip()
         return int(float(value))  # Convert to float first, then int
     except (IndexError, ValueError):
-        raise ValueError(f"Unexpected response format: {response}")
+        return "-"  # Problem decoding response
+    
 def get_charge_status():
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.connect(("127.0.0.1", 8423))
-        s.sendall(b"get battery_power_plugged\n")
-        response = s.recv(1024).decode().strip()
-
-    # Expected format: "battery_power_plugged: true|false"
     try:
-        value = response.split(":")[1].strip()
-        if value == 'false':
-            return "🔋"
-        else:  
-            return "🔌"
-    except (IndexError, ValueError):
-        raise ValueError(f"Unexpected response format: {response}")
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.settimeout(2)
+            s.connect(("127.0.0.1", 8423))
+            s.sendall(b"get battery_power_plugged\n")
+            response = s.recv(1024).decode().strip()
+    except (socket.error, ConnectionRefusedError, TimeoutError):
+        return "-"  # Port closed. Service likely not running
 
+    try:
+        value = response.split(":")[1].strip().lower()
+        if value == "false":
+            return "🔋"
+        elif value == "true":
+            return "🔌"
+        else:
+            return "-"
+    except (IndexError, ValueError):
+        return "-"  # Problem decoding response
+
+def is_spi_enabled():
+    return os.path.exists("/dev/spidev0.0")
 
 async def update_eink_display():
     global service_running, log1,log2,log3, totAttempts, totSuccess
@@ -110,11 +123,9 @@ async def update_eink_display():
     font26 = ImageFont.truetype("/usr/share/fonts/truetype/ancient-scripts/Symbola_hint.ttf",12)
     font27 = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 10)
     font28 = ImageFont.truetype("/usr/share/fonts/truetype/ancient-scripts/Symbola_hint.ttf",10)
-
-
-    time_image = Image.new('1', (epd.height, epd.width), 255)
-    time_draw = ImageDraw.Draw(time_image)
-    epd.displayPartBaseImage(epd.getbuffer(time_image))
+    eink_image = Image.new('1', (epd.height, epd.width), 255)
+    time_draw = ImageDraw.Draw(eink_image)
+    epd.displayPartBaseImage(epd.getbuffer(eink_image))
     num = 0
     while (True):
         time_draw.rectangle((0, 0, epd.height, 15), fill = 0) #Draw background behind clock
@@ -138,41 +149,8 @@ async def update_eink_display():
         time_draw.text((100,epd.width-15), "🌡️", font= font28, fill=0)  #draw temperature   
 
 
-        await asyncio.to_thread(epd.displayPartial, epd.getbuffer(time_image))
+        await asyncio.to_thread(epd.displayPartial, epd.getbuffer(eink_image))
         await asyncio.sleep(SCREEN_UPDATE_INT)
-
-def update_eink_stopped():
-    global service_running, log1,log2,log3, totAttempts, totSuccess
-    epd = epd2in13_V4.EPD()
-    epd.init()
-    epd.Clear(0xFF)
-    font24 = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 12)
-    font25 = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 12)
-    font26 = ImageFont.truetype("/usr/share/fonts/truetype/ancient-scripts/Symbola_hint.ttf",12)
-    font27 = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 10)
-    font28 = ImageFont.truetype("/usr/share/fonts/truetype/ancient-scripts/Symbola_hint.ttf",10)
-    time_image = Image.new('1', (epd.height, epd.width), 255)
-    time_draw = ImageDraw.Draw(time_image)
-    epd.displayPartBaseImage(epd.getbuffer(time_image))
-    num = 0
-    time_draw.rectangle((0, 0, epd.height, 15), fill = 0) #Draw background behind clock
-    time_draw.rectangle((0, 16, epd.height, epd.width), fill = 255) #Draw background behind everything else
-    time_draw.text((100, 2), time.strftime('%H:%M:%S'), font = font24, fill = 255) #draw time
-    time_draw.line((0,40,epd.height,40), width=2) #draw divider for status area
-    time_draw.text((50,20), "Service Stopped", font= font24, fill=0) #draw service status       
-    time_draw.line((0,epd.width-15,epd.height,epd.width-15), width=2) #draw divider for nerd stats
-    if pct >0:
-        time_draw.rectangle((60, 65, epd.height-20, 80), outline = 0, width=1) #draw progress bar outline
-        time_draw.rectangle((60, 65, ((pct*(epd.height-80))/100)+60, 80), fill = 0) #draw progress fill     
-        time_draw.text((120,65), f"{pct}%", font= font25, fill=0 if pct <50 else 255) #draw log line 2
-        time_draw.text((0,65), "Progress:", font= font25, fill=0) #draw log line 2
-
-    time_draw.text((0,85), log3, font= font25, fill=0) #draw log line 3
-    time_draw.text((0,epd.width-15), f"{totSuccess}/{totAttempts}", font= font27, fill=0)  #draw successes/attempts   
-    time_draw.text((100,epd.width-15), "🌡️", font= font28, fill=0)  #draw temperature   
-
-
-    epd.displayPartial, epd.getbuffer(time_image)
 
 
 
@@ -310,7 +288,9 @@ async def service_loop():
     global service_running, log1,log2,log3
     """Main loop: prioritizes DFU mapping then standard mapping."""
     await wait_for_downloader()
-    screen_update_task = asyncio.create_task(update_eink_display())
+    if is_spi_enabled():
+        screen_update_task = asyncio.create_task(update_eink_display())
+        logging.info("SPI bus enabled. Starting E-Ink update task")
     logging.info("--- Drone Auto-Updater Service Started ---")
     service_running = True
 
