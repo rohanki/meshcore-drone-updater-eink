@@ -110,6 +110,15 @@ def get_charge_status():
     except (IndexError, ValueError):
         return "-"  # Problem decoding response
 
+def get_active_ip():
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            # Doesn't need to be reachable
+            s.connect(("8.8.8.8", 80))
+            return s.getsockname()[0]
+    except Exception:
+        return "-"
+
 def is_spi_enabled():
     return os.path.exists("/dev/spidev0.0")
 
@@ -124,31 +133,30 @@ async def update_eink_display():
     font27 = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 10)
     font28 = ImageFont.truetype("/usr/share/fonts/truetype/ancient-scripts/Symbola_hint.ttf",10)
     eink_image = Image.new('1', (epd.height, epd.width), 255)
-    time_draw = ImageDraw.Draw(eink_image)
+    eink_draw = ImageDraw.Draw(eink_image)
     epd.displayPartBaseImage(epd.getbuffer(eink_image))
     num = 0
     while (True):
-        time_draw.rectangle((0, 0, epd.height, 15), fill = 0) #Draw background behind clock
-        time_draw.rectangle((0, 16, epd.height, epd.width), fill = 255) #Draw background behind everything else
-        time_draw.text((100, 2), time.strftime('%H:%M:%S'), font = font24, fill = 255) #draw time
-        time_draw.text((210,2), f"{await asyncio.to_thread(get_battery_percentage)}%", font= font25, fill=255) #draw battery percentage
-        time_draw.text((200,2), await asyncio.to_thread(get_charge_status), font= font26, fill=255) #draw battery percentage    
-        time_draw.line((0,40,epd.height,40), width=2) #draw divider for status area
-        time_draw.text((50,20), "Service Running" if service_running else "Service Stopped", font= font24, fill=0) #draw service status       
-        time_draw.line((0,epd.width-15,epd.height,epd.width-15), width=2) #draw divider for nerd stats
-        time_draw.text((0,45), log1, font= font25, fill=0) #draw log line 1
+        eink_draw.rectangle((0, 0, epd.height, 15), fill = 0) #Draw background behind clock
+        eink_draw.rectangle((0, 16, epd.height, epd.width), fill = 255) #Draw background behind everything else
+        eink_draw.text((100, 2), time.strftime('%H:%M:%S'), font = font24, fill = 255) #draw time
+        eink_draw.text((210,2), f"{await asyncio.to_thread(get_battery_percentage)}%", font= font25, fill=255) #draw battery percentage
+        eink_draw.text((200,2), await asyncio.to_thread(get_charge_status), font= font26, fill=255) #draw battery percentage    
+        eink_draw.line((0,40,epd.height,40), width=2) #draw divider for status area
+        eink_draw.text((50,20), "Service Running" if service_running else "Service Stopped", font= font24, fill=0) #draw service status       
+        eink_draw.line((0,epd.width-15,epd.height,epd.width-15), width=2) #draw divider for nerd stats
+        eink_draw.text((0,45), log1, font= font25, fill=0) #draw log line 1
         if pct >0:
-            time_draw.rectangle((60, 65, epd.height-20, 80), outline = 0, width=1) #draw progress bar outline
-            time_draw.rectangle((60, 65, ((pct*(epd.height-80))/100)+60, 80), fill = 0) #draw progress fill     
-            time_draw.text((120,65), f"{pct}%", font= font25, fill=0 if pct <50 else 255) #draw log line 2
-            time_draw.text((0,65), "Progress:", font= font25, fill=0) #draw log line 2
+            eink_draw.rectangle((60, 65, epd.height-20, 80), outline = 0, width=1) #draw progress bar outline
+            eink_draw.rectangle((60, 65, ((pct*(epd.height-80))/100)+60, 80), fill = 0) #draw progress fill     
+            eink_draw.text((120,65), f"{pct}%", font= font25, fill=0 if pct <50 else 255) #draw log line 2
+            eink_draw.text((0,65), "Progress:", font= font25, fill=0) #draw log line 2
 
-        time_draw.text((0,85), log3, font= font25, fill=0) #draw log line 3
-        time_draw.text((0,epd.width-15), f"{totSuccess}/{totAttempts}", font= font27, fill=0)  #draw successes/attempts   
-        time_draw.text((110,epd.width-15), f"{await asyncio.to_thread(get_temperature)}°C", font= font27, fill=0)  #draw temperature   
-        time_draw.text((100,epd.width-15), "🌡️", font= font28, fill=0)  #draw temperature   
-
-
+        eink_draw.text((0,85), log3, font= font25, fill=0) #draw log line 3
+        eink_draw.text((0,epd.width-15), f"{totSuccess}/{totAttempts}", font= font27, fill=0)  #draw successes/attempts   
+        eink_draw.text((110,epd.width-15), f"{await asyncio.to_thread(get_temperature)}°C", font= font27, fill=0)  #draw temperature   
+        eink_draw.text((100,epd.width-15), "🌡️", font= font28, fill=0)  #draw temperature   
+        eink_draw.text((180,epd.width-15), await asyncio.to_thread(get_active_ip), font= font27, fill=0)  #draw temperature   
         await asyncio.to_thread(epd.displayPartial, epd.getbuffer(eink_image))
         await asyncio.sleep(SCREEN_UPDATE_INT)
 
