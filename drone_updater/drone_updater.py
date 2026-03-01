@@ -11,6 +11,7 @@ from PIL import Image, ImageDraw, ImageFont
 import os
 import sys
 import socket
+import signal
 
 #libdir = os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))), 'lib')
 libdir = os.path.join(os.path.dirname(os.path.realpath(__file__)),'lib')
@@ -55,6 +56,9 @@ pct = 0
 log1 = ""
 log2 = ""
 log3 = ""
+
+shutdown_event = asyncio.Event()
+epd = None
 
 
 
@@ -123,20 +127,20 @@ def is_spi_enabled():
     return os.path.exists("/dev/spidev0.0")
 
 async def update_eink_display():
-    global service_running, log1,log2,log3, totAttempts, totSuccess
-    epd = epd2in13_V4.EPD()
-    epd.init()
-    epd.Clear(0xFF)
+    global service_running, log1, log2, log3, totAttempts, totSuccess, epd
+
     font24 = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 12)
     font25 = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 12)
-    font26 = ImageFont.truetype("/usr/share/fonts/truetype/ancient-scripts/Symbola_hint.ttf",12)
+    font26 = ImageFont.truetype("/usr/share/fonts/truetype/ancient-scripts/Symbola_hint.ttf", 12)
     font27 = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 10)
-    font28 = ImageFont.truetype("/usr/share/fonts/truetype/ancient-scripts/Symbola_hint.ttf",10)
+    font28 = ImageFont.truetype("/usr/share/fonts/truetype/ancient-scripts/Symbola_hint.ttf", 10)
+
     eink_image = Image.new('1', (epd.height, epd.width), 255)
     eink_draw = ImageDraw.Draw(eink_image)
-    epd.displayPartBaseImage(epd.getbuffer(eink_image))
-    num = 0
-    while (True):
+    #epd.display(epd.getbuffer(eink_image))
+    #epd.displayPartBaseImage(epd.getbuffer(eink_image))
+
+    while not shutdown_event.is_set():
         eink_draw.rectangle((0, 0, epd.height, 15), fill = 0) #Draw background behind clock
         eink_draw.rectangle((0, 16, epd.height, epd.width), fill = 255) #Draw background behind everything else
         eink_draw.text((100, 2), time.strftime('%H:%M:%S'), font = font24, fill = 255) #draw time
@@ -161,7 +165,43 @@ async def update_eink_display():
         await asyncio.sleep(SCREEN_UPDATE_INT)
 
 
+async def show_service_stopped():
+    global service_running, log1, log2, log3, totAttempts, totSuccess, epd
+    font24 = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 12)
+    font25 = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 12)
+    font26 = ImageFont.truetype("/usr/share/fonts/truetype/ancient-scripts/Symbola_hint.ttf", 12)
+    font27 = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 10)
+    font28 = ImageFont.truetype("/usr/share/fonts/truetype/ancient-scripts/Symbola_hint.ttf", 10)
+    try:
+        eink_image = Image.new('1', (epd.height, epd.width), 255)
+        eink_draw = ImageDraw.Draw(eink_image)
+        eink_draw.rectangle((0, 0, epd.height, 15), fill = 0) #Draw background behind clock
+        eink_draw.rectangle((0, 16, epd.height, epd.width), fill = 255) #Draw background behind everything else
+        eink_draw.text((100, 2), time.strftime('%H:%M:%S'), font = font24, fill = 255) #draw time
+        eink_draw.text((210,2), f"{await asyncio.to_thread(get_battery_percentage)}%", font= font25, fill=255) #draw battery percentage
+        eink_draw.text((200,2), await asyncio.to_thread(get_charge_status), font= font26, fill=255) #draw battery percentage    
+        eink_draw.line((0,40,epd.height,40), width=2) #draw divider for status area
+        eink_draw.text((50,20), "Service Running" if service_running else "Service Stopped", font= font24, fill=0) #draw service status       
+        eink_draw.line((0,epd.width-15,epd.height,epd.width-15), width=2) #draw divider for nerd stats
+        eink_draw.text((0,45), log1, font= font25, fill=0) #draw log line 1
+        if pct >0:
+            eink_draw.rectangle((60, 65, epd.height-20, 80), outline = 0, width=1) #draw progress bar outline
+            eink_draw.rectangle((60, 65, ((pct*(epd.height-80))/100)+60, 80), fill = 0) #draw progress fill     
+            eink_draw.text((120,65), f"{pct}%", font= font25, fill=0 if pct <50 else 255) #draw log line 2
+            eink_draw.text((0,65), "Progress:", font= font25, fill=0) #draw log line 2
 
+        eink_draw.text((0,85), log3, font= font25, fill=0) #draw log line 3
+        eink_draw.text((0,epd.width-15), f"{totSuccess}/{totAttempts}", font= font27, fill=0)  #draw successes/attempts   
+        eink_draw.text((110,epd.width-15), f"{await asyncio.to_thread(get_temperature)}°C", font= font27, fill=0)  #draw temperature   
+        eink_draw.text((100,epd.width-15), "🌡️", font= font28, fill=0)  #draw temperature   
+        eink_draw.text((180,epd.width-15), await asyncio.to_thread(get_active_ip), font= font27, fill=0)  #draw temperature   
+        epd.display(epd.getbuffer(eink_image))
+
+        time.sleep(2)
+        epd.sleep()
+
+    except Exception as e:
+        logging.error(f"Error displaying shutdown screen: {e}")
 
 async def wait_for_downloader():
     """Wait for the downloader service to finish to prevent file conflicts."""
@@ -293,16 +333,22 @@ async def run_dfu(target_name, address, firmware_path):
         return False
 
 async def service_loop():
-    global service_running, log1,log2,log3
-    """Main loop: prioritizes DFU mapping then standard mapping."""
+    global service_running, log1, log2, log3, epd
+
     await wait_for_downloader()
+
     if is_spi_enabled():
+        epd = epd2in13_V4.EPD()
+        epd.init()
+        epd.Clear(0xFF)
+
         screen_update_task = asyncio.create_task(update_eink_display())
         logging.info("SPI bus enabled. Starting E-Ink update task")
+
     logging.info("--- Drone Auto-Updater Service Started ---")
     service_running = True
 
-    while True:
+    while not shutdown_event.is_set():
         try:
             dfu_mapping = load_mapping(DFU_MAPPING_FILE, DFU_OVERRIDE_FW)
             standard_mapping = load_mapping(MAPPING_FILE, OVERRIDE_FW)
@@ -310,16 +356,17 @@ async def service_loop():
 
             for dev in devices:
                 name = dev.name
-                if not name: continue
+                if not name:
+                    continue
+
                 log1 = "SCANNING ..."
-                # Priority 1: DFU Mapping
+
                 if name in dfu_mapping:
                     logging.info(f"DFU MATCH: {name}")
                     log1 = f"DFU: {name}"
                     await run_dfu(name, dev.address, dfu_mapping[name])
                     break
 
-                # Priority 2: Standard Mapping
                 elif name in standard_mapping:
                     logging.info(f"STANDARD MATCH: {name}")
                     log1 = f"OTA: {name}"
@@ -332,10 +379,30 @@ async def service_loop():
             logging.error(f"Main Loop Error: {e}")
             await asyncio.sleep(5)
 
-if __name__ == "__main__":
-    try:
-        asyncio.run(service_loop())
-        
+    # Wait for display task to exit cleanly
+    if is_spi_enabled():
+        await screen_update_task
 
-    except KeyboardInterrupt:
-        pass
+async def main():
+    loop = asyncio.get_running_loop()
+
+    def shutdown_handler():
+        logging.info("Shutdown signal received.")
+        shutdown_event.set()
+
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        loop.add_signal_handler(sig, shutdown_handler)
+
+    try:
+        await service_loop()
+    finally:
+        logging.info("Service stopping...")
+        global service_running
+        service_running = False
+
+        if epd:
+            await show_service_stopped()
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
